@@ -8,11 +8,8 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types, ipv4, udp, ipv6, tcp, arp
 
 ARP_ETH_TYPE = 0x0806
-BROADCAST_MAC = "ff:ff:ff:ff:ff:ff"
-MAC_BROADCAST = "ff:ff:ff:ff:ff:ff"
 IPV4_ETH_TYPE = 0x0800
 IP_PROTO_UDP = 17
-
 UDP_PORT_STREAMING = 9999
 
 class RyuController(app_manager.RyuApp):

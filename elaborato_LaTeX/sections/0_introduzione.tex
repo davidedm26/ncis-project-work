@@ -1,8 +1,17 @@
-Il progetto mira a implementare il network slicing in una rete virtualizzata mediante \textit{Mininet}, sfruttando la libreria Python e l'emulatore di controller \textit{Ryu}. L'implementazione è organizzata nelle seguenti sezioni:
+The project implements network slicing in a virtualised SDN environment deployed on an \textbf{Ubuntu 22.04 LTS virtual machine}.  
+The experimental setup is based on:
+\begin{itemize}
+    \item \textbf{Mininet}, used to emulate hosts, switches, and links;
+    \item \textbf{Open vSwitch} (via Mininet), used as the software data plane;
+    \item \textbf{Python 3} scripts, used to define topologies and automate tests;
+    \item \textbf{Ryu controller}, used to implement SDN control logic and OpenFlow rules.
+\end{itemize}
+
+The implementation is organised into the following sections:
 \begin{enumerate}
-    \item \textbf{Topology-slicing}: Restrizione delle rotte di comunicazione tra specifici host;
-    \item \textbf{Service-slicing}: Differenziazione del trattamento di determinati tipi di traffico.
+    \item \textbf{Topology-slicing}: restriction of communication paths between specific hosts;
+    \item \textbf{Service-slicing}: differentiated treatment of selected traffic classes.
 \end{enumerate}
 
 \noindent
-Per ogni sezione sono previsti test di validazione dei risultati ottenuti.
+For each section, validation tests are performed (e.g., connectivity and traffic checks) to evaluate the effectiveness of the proposed slicing policies.

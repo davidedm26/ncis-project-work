@@ -9,14 +9,14 @@ from mininet.link import *
 class Environment(object):
     def __init__(self):
 
-        info("[NET-DEF] Starting controller\n")
-    
-        self.net = Mininet(controller=RemoteController, link=TCLink)
-        # creazione controller
-        c1 = self.net.addController( 'c1', controller=RemoteController, port=6653, ip='127.0.0.1') 
+        info("[NET-DEF] Initializing controller\n")
 
-        # inizializzazione controller
-        c1.start()
+        self.net = Mininet(controller=RemoteController, link=TCLink) # crea un'istanza della classe Mininet, specificando che il controller sarà un RemoteController (controller esterno) e che i link tra i nodi saranno di tipo TCLink (link con controllo del traffico)
+        
+        c1 = self.net.addController( 'c1', controller=RemoteController, port=6653, ip='127.0.0.1')  # aggiunge un controller remoto alla rete, specificando il nome del controller (c1), il tipo di controller (RemoteController), la porta su cui il controller ascolterà le connessioni (6653) e l'indirizzo IP del controller (
+
+        
+        c1.start() # avvia il controller remoto, consentendo al controller di stabilire connessioni con gli switch della rete e di gestire il traffico in base alle flow rules installate negli switch
 
         info("[NET-DEF] Adding hosts and switches\n")
 
@@ -36,14 +36,15 @@ class Environment(object):
         info("[NET-DEF] Connecting hosts\n")  
         
         # Link declaration 
+        # Hosts to Switches
         self.net.addLink(self.h1, self.s1, delay='0.01ms', port1=1, port2=1)
         self.net.addLink(self.h2, self.s1, delay='0.01ms', port1=1, port2=2)
         self.net.addLink(self.h3, self.s2, delay='0.01ms', port1=1, port2=3)
         self.net.addLink(self.h4, self.s2, delay='0.01ms', port1=1, port2=4)
 
+        # Switches to Switches
         self.net.addLink(self.s1, self.Up, bw=10, delay='0.025ms', port1=3, port2=1)
         self.net.addLink(self.Up, self.s2, bw=10, delay='0.025ms', port1=2, port2=1)
-
         self.net.addLink(self.s1, self.Dw, bw=1, delay='0.025ms', port1=4, port2=1)
         self.net.addLink(self.Dw, self.s2, bw=1, delay='0.025ms', port1=2, port2=2)
 

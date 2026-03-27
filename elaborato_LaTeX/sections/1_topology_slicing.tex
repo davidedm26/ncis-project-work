@@ -1,34 +1,36 @@
-Questa sezione riguarda la definizione della topologia di rete in Mininet e la conseguente suddivisione in due \textit{slices} isolati. Lo scopo è costruire una topologia secondo la quale gli host possono comunicare attraverso rotte predefinite:
+This section covers the definition of the network topology in Mininet and the resulting division into two isolated \textit{slices}. The aim is to construct a topology in which hosts can communicate via predefined routes:
 \begin{itemize}
-    \item L'host h1 può comunicare solo con h3 tramite il path superiore;
-    \item L'host h2 può comunicare solo con h4 tramite il path inferiore.
+    \item The host h1 can communicate only with h3 via the \textbf{upper path};
+    \item The host h2 can communicate only with h4 via the \textbf{lower path}.
 \end{itemize}
 
 \noindent
-A questo proposito, è stata definita la seguente configurazione Mininet implementando il costruttore della classe Mininet.Environment, la cui vista logica è rappresentata in figura \ref{img:network_view}.
+A this purpose, the following Mininet configuration has been defined by implementing the constructor of the \lstinline|Mininet.Environment| class, whose logical view is represented in figure \ref{img:network_view}.
 
 \vspace{.5cm}
 \begin{pythoncode}[]
 class Environment(object):
     def __init__(self):
     # ... 
-    # Definizione hosts
+    # Nodes definition
+    # Hosts definition
     self.h1 = self.net.addHost('h1', mac= '00:00:00:00:00:01', ip= '10.0.0.1')
     self.h2 = self.net.addHost('h2', mac= '00:00:00:00:00:02', ip= '10.0.0.2')
     self.h3 = self.net.addHost('h3', mac= '00:00:00:00:00:03', ip= '10.0.0.3')
     self.h4 = self.net.addHost('h4', mac= '00:00:00:00:00:04', ip= '10.0.0.4')
-
-    # Definizione switch
+    # Switches definition
     self.s1 = self.net.addSwitch('s1')
     self.s2 = self.net.addSwitch('s2')
     self.Up = self.net.addSwitch('s3') # up
     self.Dw = self.net.addSwitch('s4') # down
 
-    # Link declaration 
+    # Links definition
+    # Hosts to Switches 
     self.net.addLink(self.h1, self.s1, delay='0.01ms', port1=1, port2=1)
     self.net.addLink(self.h2, self.s1, delay='0.01ms', port1=1, port2=2)
     self.net.addLink(self.h3, self.s2, delay='0.01ms', port1=1, port2=3)
     self.net.addLink(self.h4, self.s2, delay='0.01ms', port1=1, port2=4)
+    # Switches to Switches
     self.net.addLink(self.s1, self.Up, bw=10, delay='0.025ms', port1=3, port2=1)
     self.net.addLink(self.Up, self.s2, bw=10, delay='0.025ms', port1=2, port2=1)
     self.net.addLink(self.s1, self.Dw, bw=1, delay='0.025ms', port1=4, port2=1)
@@ -40,25 +42,34 @@ class Environment(object):
     \centering
     \setlength{\fboxrule}{.5pt} 
     \setlength{\fboxsep}{3pt} 
-    \fbox{\includegraphics[width=0.8\textwidth]{img/network_view.png}}
+    \fbox{\includegraphics[width=0.8\textwidth]{img/topology.png}}
     \label{img:network_view}
+    \caption{Logical view of the network topology}
 \end{figure}
 
+
+
+\noindent
+Given the defined network topology, a \textbf{deterministic} routing approach was implemented within the controller. This design ensures granular control over traffic flows, allowing for the enforcement of static routes that guarantee slice isolation and adherence to predefined network policies.
+
+\textbf{RyuController} is an SDN application based on the OpenFlow 1.3 protocol, designed to manage a network environment emulated via Mininet and Open vSwitch. The application was developed by extending the \lstinline|ryu.base.app_manager.RyuApp| base class. To ensure deterministic forwarding and strict slice isolation, a static addressing scheme was adopted: host MAC addresses are defined as constant strings directly within the class constructor."
+
 \begin{pythoncode}
-# Estensione della classe base
+# Base class extension
 class RyuController(app_manager.RyuApp):
-    # OpenFlow 1.3 (Rifiuta linguaggi precedenti)
+    # OpenFlow 1.3 
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self, *args, **kwargs):
         super(RyuController, self).__init__(*args, **kwargs)
         
+        # Static MAC addresses definition for deterministic routing
         self.h1 = '00:00:00:00:00:01'
         self.h2 = '00:00:00:00:00:02'
         self.h3 = '00:00:00:00:00:03'
         self.h4 = '00:00:00:00:00:04'
 
-    # Installa una flow rule OpenFlow nello switch
+    # Utility function to add flow rules to the switches
     def add_flow(self, datapath, priority, match, actions, idle_timeout=0, flag=0):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
@@ -70,20 +81,26 @@ class RyuController(app_manager.RyuApp):
             idle_timeout = idle_timeout, flags=flag
         )
 
-        # invio della regola allo switch
-        datapath.send_msg(mod)
+        datapath.send_msg(mod) # Send the flow modification message to the switch
 \end{pythoncode}
 
-\noindent
-Date le ridotte dimensioni della rete, sono state inserite delle regole nel controllore che impongono le rotte. 
-\begin{info}
-    RyuController è un controller SDN OpenFlow 1.3 basato su Ryu che usa Mininet e Open vSwitch. \uppercase{è} stato implementato a partire dalla classe base ryu.base.app\_manager.RyuApp, e gli indirizzi MAC degli host sono stati inseriti come stringhe statiche direttamente nel costruttore.
-\end{info}
+
+The routing strategy implemented in this SDN controller follows a \textbf{proactive} approach. Rather than reacting to packets arriving at the controller, flow rules are pre-installed on all switches during the controller initialization phase, specifically when the \lstinline|switch_features_handler| is triggered upon OpenFlow handshake completion.
+
+This proactive method offers several advantages:
+\begin{itemize}
+    \item \textbf{Deterministic behavior}: All routing decisions are made statically before any traffic flows through the network, ensuring predictable and consistent packet forwarding;
+    \item \textbf{Reduced latency}: Packets are forwarded according to pre-installed rules without requiring controller interaction, eliminating the overhead of reactive packet-in messages;
+    \item \textbf{Improved performance}: The controller is not burdened with runtime packet processing, allowing it to manage multiple switches more efficiently;
+    \item \textbf{Enhanced slice isolation}: Static rules guarantee that traffic is strictly confined within designated slices, preventing any cross-slice communication regardless of runtime conditions.
+\end{itemize}
 
 \noindent
-Quando Mininet avvia uno switch, questo prova ad aprire una connessione TCP verso il controller Ryu. Se la connessione viene stabilita (handshake a tre vie), viene avviato l'handshake OpenFlow. Dopodichè, lo switch invia un messaggio FEATURES\_REPLY, ed il controller esegue switch\_features\_handler.
+Unlike reactive approaches where the controller would process unknown flows dynamically, this proactive strategy ensures that every switch has complete knowledge of how to forward packets for all host pairs, thus achieving the isolation guarantees required by the network slicing architecture.
+When Mininet initiates a switch, it attempts to establish a TCP connection with the Ryu controller. If the connection is successful (i.e. the three-way handshake is completed), the OpenFlow handshake is then initiated. Subsequently, the switch sends a \lstinline|FEATURES_REPLY| message, and the controller executes the \lstinline|switch_features_handler| function.
+This function is responsible for installing the flow rules in the switch, which are defined based on the switch's unique identifier (dpid). The flow rules are designed to enforce the predefined routing paths and ensure that traffic is confined within the designated slices of the network.
 
-\newpage
+
 \begin{pythoncode}
 @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
 def switch_features_handler(self, ev):
@@ -92,85 +109,96 @@ def switch_features_handler(self, ev):
     parser = datapath.ofproto_parser
     dpid = datapath.id
 
-    if dpid == 1:
-        # UP flow 
-        port_out_Up = 3
-        port_in_Up = 1
+    if dpid == 1: # Switch S1
+        # UP flow configuration
+        port_out_Up = 3 # S1 out port (UP)
+        port_in_Up = 1 # S1 in port (UP)
 
         # Flow IN
-        self.add_mac_flow(datapath, self.h1, self.h3, port_out_Up)
-        self.add_arp_flow(datapath, self.h1, port_out_Up)
+        self.add_mac_flow(datapath, self.h1, self.h3, port_out_Up) # Eth H1 to H3 via s1:1 
+        self.add_arp_flow(datapath, self.h1, port_out_Up) # ARP  H1 to H3 via s1:1
 
         # Flow Back
-        self.add_mac_flow(datapath, self.h3, self.h1, port_in_Up)
-        self.add_arp_flow(datapath, self.h3, port_in_Up)
-
+        self.add_mac_flow(datapath, self.h3, self.h1, port_in_Up) # Eth H3 to H1 via s1:3
+        self.add_arp_flow(datapath, self.h3, port_in_Up) # ARP from H3  to H1 via s1:3
+        
+        ##################################################################################
+        
         # Down flow configuration 
-        port_out_Dw = 4
-        port_in_Dw = 2
+        port_out_Dw = 4 # S1 out port (DW)
+        port_in_Dw = 2 # S1 in port (DW)
         
         # Flow IN
-        self.add_mac_flow(datapath, self.h2, self.h4, port_out_Dw)
-        self.add_arp_flow(datapath, self.h2, port_out_Dw)
+        self.add_mac_flow(datapath, self.h2, self.h4, port_out_Dw) # Eth H2 to H4 via s1:2
+        self.add_arp_flow(datapath, self.h2, port_out_Dw) # ARP H2 to H4 via s1:2
 
         # Flow Back
-        self.add_mac_flow(datapath, self.h4, self.h2, port_in_Dw)
-        self.add_arp_flow(datapath, self.h4, port_in_Dw)
+        self.add_mac_flow(datapath, self.h4, self.h2, port_in_Dw) # Eth H4 to H2 via s1:4
+        self.add_arp_flow(datapath, self.h4, port_in_Dw) # ARP H4 to H2 via s1:4
 
-    elif dpid == 2:
-        port_out_Up = 1
-        port_in_Up = 3
+    elif dpid == 2: # Switch S2
+        # UP flow configuration
+        port_out_Up = 1 # S2 out port (UP)
+        port_in_Up = 3 # S2 in port (UP)
 
-        self.add_mac_flow(datapath, self.h3, self.h1, port_out_Up)
-        self.add_arp_flow(datapath, self.h3, port_out_Up)
+        # Flow IN
+        self.add_mac_flow(datapath, self.h3, self.h1, port_out_Up) # Eth H3 to H1 via s2:1
+        self.add_arp_flow(datapath, self.h3, port_out_Up) # ARP H3 to H1 via s2:1
 
-        self.add_mac_flow(datapath, self.h1, self.h3, port_in_Up)
-        self.add_arp_flow(datapath, self.h1, port_in_Up)
+        # Flow Back
+        self.add_mac_flow(datapath, self.h1, self.h3, port_in_Up) # Eth H1 to H3 via s2:3
+        self.add_arp_flow(datapath, self.h1, port_in_Up) # ARP H1 to H3 via s2:3
 
-        port_out_Dw = 2
-        port_in_Dw = 4
+        ##################################################################################
+
+        # Down flow configuration
+        port_out_Dw = 2 # S2 out port (DW)
+        port_in_Dw = 4 # S2 in port (DW)
         
-        self.add_mac_flow(datapath, self.h4, self.h2, port_out_Dw)
-        self.add_arp_flow(datapath, self.h4, port_out_Dw)
+        # Flow IN
+        self.add_mac_flow(datapath, self.h4, self.h2, port_out_Dw) # Eth H4 to H2 via s2:2
+        self.add_arp_flow(datapath, self.h4, port_out_Dw) # ARP H4 to H2 via s2:2
 
-        self.add_mac_flow(datapath, self.h2, self.h4, port_in_Dw)
-        self.add_arp_flow(datapath, self.h2, port_in_Dw)
+        # Flow Back
+        self.add_mac_flow(datapath, self.h2, self.h4, port_in_Dw) # Eth H2 to H4 via s2:4
+        self.add_arp_flow(datapath, self.h2, port_in_Dw) # ARP H2 to H4 via s2:4
 
-    elif dpid == 3:
-        port_1 = 1
-        port_2 = 2
+    elif dpid == 3: # Switch 3 (UP)
+        port_1 = 1 # S3 in port (UP)
+        port_2 = 2 # S3 out port (UP)
 
-        self.add_mac_flow(datapath, self.h1, self.h3, port_2)
-        self.add_arp_flow(datapath, self.h1, port_2)
+        self.add_mac_flow(datapath, self.h1, self.h3, port_2) # Eth H1 to H3 via s3:2
+        self.add_arp_flow(datapath, self.h1, port_2) # ARP H1 to H3 via s3:2
 
-        self.add_mac_flow(datapath, self.h3, self.h1, port_1)
-        self.add_arp_flow(datapath, self.h3, port_1)
+        self.add_mac_flow(datapath, self.h3, self.h1, port_1) # Eth H3 to H1 via s3:1
+        self.add_arp_flow(datapath, self.h3, port_1) # ARP H3 to H1 via s3:1
+
     
-    elif dpid == 4:
-        port_1 = 1
-        port_2 = 2
+    elif dpid == 4: # Switch 4 (DW)
+        port_1 = 1 # S4 in port (DW)
+        port_2 = 2 # S4 out port (DW)
 
-        self.add_mac_flow(datapath, self.h2, self.h4, port_2)
-        self.add_arp_flow(datapath, self.h2, port_2)
+        self.add_mac_flow(datapath, self.h2, self.h4, port_2) # Eth H2 to H4 via s4:2
+        self.add_arp_flow(datapath, self.h2, port_2) # ARP H2 to H4 via s4:2
 
-        self.add_mac_flow(datapath, self.h4, self.h2, port_1)
-        self.add_arp_flow(datapath, self.h4, port_1)    
+        self.add_mac_flow(datapath, self.h4, self.h2, port_1) # Eth H4 to H2 via s4:1
+        self.add_arp_flow(datapath, self.h4, port_1) # ARP H4 to H2 via s4:1    
         
 \end{pythoncode}
 
 \noindent
-Dopo aver determinato l'identità dello switch con \textit{dpid}, il controller crea la regola attraverso add\_mac\_flow, ovvero l'associazione (mac\_src, mac\_dst) $\rightarrow$ port. Attraverso la regola add\_arp\_flow, imponiamo che i messaggi ARP possono uscire su più porte, ed è una regola a priorità più alta di quella che impone il flusso basato su MAC. Osserviamo che comunque il pacchetto ARP, che viene inviato in broadcast, viene comunque confinato nello \textit{slice} della rete. 
+After determining the switch identity with \textit{dpid}, the controller creates the rule through add\_mac\_flow, which is the association (mac\_src, mac\_dst) $\to$ port. Through the add\_arp\_flow rule, we enforce that ARP messages can exit on multiple ports, and it is a rule with higher priority than the one that enforces MAC-based flow. We observe that the ARP packet, which is sent in broadcast, is nevertheless confined within the network \textit{slice}.
 
 \vspace{.3cm}
 \begin{pythoncode}
-    def add_mac_flow(self, datapath, src, dst, out_port, priority=10):
+    def add_mac_flow(self, datapath, src, dst, out_port, priority=10): # Utility function to add flow rules based on MAC addresses, specifying the source and destination MAC addresses, the output port, and an optional priority level for the flow rule
         parser = datapath.ofproto_parser
 
         match = parser.OFPMatch(eth_src=src, eth_dst=dst)
         actions = [parser.OFPActionOutput(out_port)]
         self.add_flow(datapath, priority, match, actions)
     
-    def add_arp_flow(self, datapath, eth_src, out_port):
+    def add_arp_flow(self, datapath, eth_src, out_port): # Utility function to add flow rules for ARP packets, matching only the source MAC address and allowing the packet to be output on multiple ports (if out_port is a list), with a higher priority than the MAC-based flow rules to ensure that ARP packets are handled correctly
         parser = datapath.ofproto_parser
         
         match = parser.OFPMatch(eth_src=eth_src, eth_dst="ff:ff:ff:ff:ff:ff", eth_type=0x0806)
@@ -184,35 +212,33 @@ Dopo aver determinato l'identità dello switch con \textit{dpid}, il controller 
 
 \end{pythoncode}
 
-\noindent
-Per testare questa configurazione sono stati usati i tool \textit{pingall} di Mininet e \textit{Whireshark}.
 
-\begin{commandline}
-\begin{verbatim}
-mininet> pingall 
-*** Ping: testing ping reachability
+To test this configuration, Mininet's \textit{pingall} tool and \textit{Wireshark} were used.
 
-h1 -> X h3 X 
-h2 -> X X h4 
-h3 -> h1 X X 
-h4 -> X h2 X
 
-*** Results: 66% dropped (4/12 received) 
-\end{verbatim}
-\end{commandline}
-
-\begin{figure}[ht]
+\begin{figure}[H]
     \centering
     \setlength{\fboxrule}{.5pt} 
     \setlength{\fboxsep}{3pt} 
-    \fbox{\includegraphics[width=0.9\textwidth]{img/T_whireshark_h1toh3.png}}
+    \fbox{\includegraphics[width=0.55\textwidth]{img/pingall.png}}
+    \label{img:pingall}
+    \caption{pingall results: hosts h1 and h3 can communicate, while hosts h2 and h4 can communicate, confirming the isolation of the two slices.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \setlength{\fboxrule}{.5pt} 
+    \setlength{\fboxsep}{3pt} 
+    \fbox{\includegraphics[width=0.9\textwidth]{img/h1_h3_communication.jpeg}}
+    \caption{Wireshark capture: Communication between h1 and h3 via the upper path (S3)}
     \label{img:h1toh3}
 \end{figure}
 
-\begin{figure}[ht]
+\begin{figure}[H]
     \centering
     \setlength{\fboxrule}{.5pt} 
     \setlength{\fboxsep}{3pt} 
-    \fbox{\includegraphics[width=0.9\textwidth]{img/T_whireshark_h2toh4.png}}
+    \fbox{\includegraphics[width=0.9\textwidth]{img/h2_h4_communication.jpeg}}
+    \caption{Wireshark capture: Communication between h2 and h4 via the lower path (S4)}
     \label{img:h2toh4}
 \end{figure}
