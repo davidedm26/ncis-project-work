@@ -12,9 +12,8 @@ IPV4_ETH_TYPE = 0x0800
 IP_PROTO_UDP = 17
 UDP_PORT_STREAMING = 9999
 
-# In Mininet/VM environments hosts often emit periodic IPv6 multicast
-# (mDNS/MLD/Neighbor Discovery). If this project focuses on IPv4 (e.g. UDP/9999
-# streaming), dropping IPv6 at the switch prevents continuous PacketIn traffic.
+
+# Droppa il traffico IPv6 allo switch per evitare che i pacchetti IPv6 multicast generino un continuo flusso di eventi PacketIn al controller
 DROP_IPV6_AT_SWITCH = True
 
 class RyuController(app_manager.RyuApp):
@@ -102,16 +101,16 @@ class RyuController(app_manager.RyuApp):
             actions = [parser.OFPActionOutput(2)]
             self.add_flow(datapath, priority=1, match=match, actions=actions)
 
+            # Traffico in ingresso da switch 2 verso switch 1
+            match = parser.OFPMatch(in_port=2)
+            actions = [parser.OFPActionOutput(1)]
+            self.add_flow(datapath, priority=1, match=match, actions=actions)
+
         # Optional: drop IPv6 early to avoid continuous controller PacketIn due
         # to multicast control traffic (e.g., 33:33:..:fb, :16, :02).
         if DROP_IPV6_AT_SWITCH:
             match = parser.OFPMatch(eth_type=ether_types.ETH_TYPE_IPV6)
             self.add_flow(datapath, priority=10, match=match, actions=[])
-
-            # Traffico in ingresso da switch 2 verso switch 1
-            match = parser.OFPMatch(in_port=2)
-            actions = [parser.OFPActionOutput(1)]
-            self.add_flow(datapath, priority=1, match=match, actions=actions)
 
         # Regola di default per inoltrare tutti i pacchetti che non soddisfano le condizioni precedenti verso il controller
         match = parser.OFPMatch()
@@ -168,7 +167,7 @@ class RyuController(app_manager.RyuApp):
 
             self.logger.info(f"[CONTROLLED FLOOD via dw] dpid={dpid}, {src} -> {dst}, out_ports={[a.port for a in actions]}")
 
-        # Nothing to do (e.g. switch has no eligible output ports)
+        # 
         if not actions:
             return
 
