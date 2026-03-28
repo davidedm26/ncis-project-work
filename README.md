@@ -1,35 +1,35 @@
-# Elaborato NCIS 2024/2025 — Network Slicing in SDN
+# NCIS Project 2024/2025 — Network Slicing in SDN
 
-## Obiettivo
+## Goal
 
-Il progetto implementa il **network slicing** in un ambiente **SDN** tramite **Mininet** e **Ryu** (OpenFlow 1.3), con due componenti:
+This project implements **network slicing** in an **SDN** environment using **Mininet** and **Ryu** (OpenFlow 1.3), with two components:
 
-1. **Topology slicing**: isolamento logico dei gruppi di host tramite regole basate su MAC.
-2. **Service slicing**: classificazione del traffico e instradamento su due percorsi con capacità diversa.
+1. **Topology slicing**: logical isolation of host groups via MAC-based rules.
+2. **Service slicing**: traffic classification and forwarding over two paths with different capacity.
 
-## Stack tecnologico
+## Tech stack
 
-- Emulatore: Mininet
+- Emulator: Mininet
 - Controller: Ryu
-- Protocollo: OpenFlow 1.3
-- Generazione traffico: iPerf (iPerf2)
-- Analisi dati: Python + Matplotlib
+- Protocol: OpenFlow 1.3
+- Traffic generation: iPerf (iPerf2)
+- Data analysis: Python + Matplotlib
 
-## Struttura repository
+## Repository structure
 
-- `scripts/topology/`: topologia + controller per topology slicing
-- `scripts/service/`: topologia + controller per service slicing
-- `scripts/data_analysis/`: CSV iPerf (`up.csv`, `down.csv`) e script di plotting (`data_analysis.py`)
-- `elaborato_LaTeX/`: relazione in LaTeX
+- `scripts/topology/`: topology + controller for topology slicing
+- `scripts/service/`: topology + controller for service slicing
+- `scripts/data_analysis/`: iPerf CSVs (`up.csv`, `down.csv`) and plotting script (`data_analysis.py`)
+- `elaborato_LaTeX/`: report in LaTeX
 
-## Requisiti
+## Requirements
 
-Ambiente tipico di esecuzione (Linux/VM):
+Typical runtime environment (Linux/VM):
 
 - Python 3
 - Mininet
 - Ryu (`ryu-manager`)
-- iPerf2 (per l'output CSV con `-y C`)
+- iPerf2 (for CSV output with `-y C`)
 - Matplotlib
 
 
