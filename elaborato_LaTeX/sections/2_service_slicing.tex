@@ -1,6 +1,6 @@
-In questa sezione verrà discusso il modo in cui è stato possibile effettuare lo \textit{slicing} della rete al fine di differenziare il trattamento di diversi flussi. In questo caso particolare, sfruttando la stessa vista logica della rete utilizzata nella sezione precedente, facciamo in modo che lo \textit{slice} inferiore sia destinato al traffico normale e alla connessione di tutti gli host tra di loro, mentre lo \textit{slice} superiore sia destinato al traffico video. 
-Per effettuare questa separazione, vengono implementati dei filtri sugli switch s1 ed s2. Gli switch s3 ed S4 controllano che effettivamente il flusso sia di tipo \textit{streaming video}, altrimenti non inoltrano il pacchetto ed interrompono il flusso. 
-Non sono state apportate modifiche alla struttura della rete tramite Mininet, quindi di seguito vengono esposte le modifiche alla classe del controllore Ryu. 
+In this section, we will discuss how it was possible to perform \textit{slicing} of the network in order to differentiate the treatment of different flows. In this particular case, exploiting the same logical view of the network used in the previous section, we ensure that the lower \textit{slice} is intended for normal traffic and the connection of all hosts to each other, while the upper \textit{slice} is intended for video traffic.
+To perform this separation, filters are implemented on switches s1 and s2. Switch s3 checks that the flow is actually of \textit{streaming video} type (UDP port 9999), while switch s4 handles all other traffic through bidirectional forwarding.
+No modifications were made to the topology through Mininet, so the changes to the Ryu controller class are presented below.
 
 \vspace{.3cm}
 
@@ -12,8 +12,8 @@ def switch_features_handler(self, ev):
     parser = datapath.ofproto_parser
     dpid = datapath.id
     self.logger.info(f"[FEATURES HANDLER] dpid={dpid}")
-    if dpid == 1:
-        port_up, port_dw = 3, 4
+    if dpid == 1: # If switch s1, if the packet from the host is UDP on port 9999, send it to the upper path.
+        port_up, port_dw = 3, 4 
         port_h1, port_h2 = 1, 2
         for host_port in [port_h1, port_h2]:
             match = parser.OFPMatch(
@@ -24,7 +24,7 @@ def switch_features_handler(self, ev):
             )
             actions = [parser.OFPActionOutput(port_up)]
             self.add_flow(datapath, priority=100, match=match, actions=actions)
-    elif dpid == 2:
+    elif dpid == 2: # For switch s2, if the packet from the host is UDP on port 9999, send it to the upper path.
         port_up, port_dw = 1, 2
         port_h3, port_h4 = 3, 4
         for host_port in [port_h3, port_h4]:
@@ -36,7 +36,7 @@ def switch_features_handler(self, ev):
             )
             actions = [parser.OFPActionOutput(port_up)]
             self.add_flow(datapath, priority=100, match=match, actions=actions)
-    elif dpid == 3:
+    elif dpid == 3: # For switch s3, if the packet is UDP on port 9999, let it pass.
         match = parser.OFPMatch(
             in_port=1, eth_type=0x0800, ip_proto=17, udp_dst=UDP_PORT_STREAMING
         )
@@ -47,22 +47,34 @@ def switch_features_handler(self, ev):
         )
         actions = [parser.OFPActionOutput(1)]
         self.add_flow(datapath, priority=100, match=match, actions=actions)
-    elif dpid == 4:
+    elif dpid == 4: # For switch s4, forward all packets bidirectionally.
         match = parser.OFPMatch(in_port=1)
         actions = [parser.OFPActionOutput(2)]
         self.add_flow(datapath, priority=1, match=match, actions=actions)
         match = parser.OFPMatch(in_port=2)
         actions = [parser.OFPActionOutput(1)]
         self.add_flow(datapath, priority=1, match=match, actions=actions)
-    # regola di base -> manda pacchetto al controller
+    # default rule -> sends packet to controller
     match = parser.OFPMatch()
     actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                     ofproto.OFPCML_NO_BUFFER)]
     self.add_flow(datapath, priority=0, match=match, actions=actions)
 \end{pythoncode}
 \newpage
-\noindent
-Il service based forwarding è palesato nelle istruzioni che riguardano il match dei pacchetti sugli switch marginali, in cui viene definita la regola per cui se il pacchetto usa il protocollo IP/UPD sul porto 9999 (streaming video) viene mandato sempre sul path superiore, indipendentemente dal MAC dei dispositivi comunicanti. Gli switch s3 ed s4 invece si occupano in questo caso solo del forwarding bidirezionale nel caso in cui avvenga il match (IP/UDP sul porto 9999 per lo switch s3 e tutti gli altri pacchetti per lo switch s4).
+
+
+
+The implemented strategy combines two complementary approaches: the proactive rules installed in the \textit{switch features handler} and reactive management through the \textit{packet in handler}. Proactive rules ensure that video streaming traffic (UDP port 9999) is always routed on the dedicated upper path without involving the controller for each packet. Conversely, reactive management intervenes when no matching rule exists: the packet is forwarded to the controller, which extracts information from the packet header, updates its MAC tables, and decides the optimal path. This hybrid approach reduces latency for critical traffic (video streaming) through proactive rules, while reactive management provides flexibility and adaptability for best effort traffic, thus avoiding overloading the controller with already-classified packets.
+
+\begin{figure}[H]
+    \centering
+    \setlength{\fboxrule}{.5pt} 
+    \setlength{\fboxsep}{3pt} 
+    \fbox{\includegraphics[width=0.75\textwidth]{img/topology2.jpeg}}
+    \caption{Service slicing logical view.}
+\end{figure}
+
+Service-based forwarding is evident in the instructions concerning packet matching on edge switches, where the rule is defined such that if the packet uses the IP/UDP protocol on port 9999 (video streaming), it is always sent on the upper path, regardless of the MAC addresses of the communicating devices. Switches s3 and s4, on the other hand, are only responsible for bidirectional forwarding in case of a match (IP/UDP on port 9999 for switch s3 and all other packets for switch s4).
 
 \vspace{.3cm}
 \begin{pythoncode}
@@ -73,7 +85,7 @@ def _packet_in_handler(self, ev):
     ofproto = datapath.ofproto
     parser = datapath.ofproto_parser
     dpid = datapath.id
-    in_port = msg.match['in_port']
+    in_port = msg.match['in_port'] # port from which the packet was received
 
     pkt = packet.Packet(msg.data)
     eth = pkt.get_protocol(ethernet.ethernet)
@@ -83,18 +95,20 @@ def _packet_in_handler(self, ev):
     src = eth.src
     self.mac_to_port.setdefault(dpid, {})
 
-    self.mac_to_port[dpid][src] = in_port
+    self.mac_to_port[dpid][src] = in_port # update MAC table with the source MAC and the port it came from
 
-    # dest mac conosciuto 
-    if dst in self.mac_to_port[dpid]:
-        out_port = self.mac_to_port[dpid][dst]
-        actions = [parser.OFPActionOutput(out_port)]
+    # known destination mac 
+    if dst in self.mac_to_port[dpid]: 
+        out_port = self.mac_to_port[dpid][dst] # get the port to which the destination MAC is associated
+        actions = [parser.OFPActionOutput(out_port)] # create an action to forward the packet to the correct port
+
+    # unknown destination mac -> flood only on the down path
     else:
         host_ports = {
-            1: {1,2}, # [dpid] -> [h*,h*]
+            1: {1,2}, 
             2: {3,4}, 
-            3: set(), # core UP
-            4: set() # core down
+            3: set(), 
+            4: set() 
         }
 
         interswitch_links = {
@@ -111,7 +125,7 @@ def _packet_in_handler(self, ev):
             if p != in_port:
                 actions.append(parser.OFPActionOutput(p))
 
-    if len(actions) == 1:
+    if len(actions) == 1: # if there is only one action, it means we have a known destination and we can install a flow rule for future packets
         match = parser.OFPMatch(in_port=in_port, eth_src=src, eth_dst=dst)
         self.add_flow(datapath, priority=1, match=match, actions=actions)
 
@@ -125,74 +139,82 @@ def _packet_in_handler(self, ev):
     datapath.send_msg(out)
 \end{pythoncode}
 
-\newpage
 \noindent 
-Questa funzione viene chiamata ogni volta che uno switch riceve un pacchetto, non trova nessun match e inoltra il pacchetto al controller.
-Il controller estrae informazioni dal pacchetto e mantiene una tabella MAC per ogni switch, dove si trova l'associazione (MAC, port). 
-Se la destinazione è già nota, questa viene utilizzata per l'inoltro diretto. Se la destinazione è ignota, viene inviato il pacchetto in flooding solo sulla rotta down.
-Il test di questa implementazione è stato effettuato mediante i tool \textit{pingall} di Mininet, \textit{Wireshark} e \textit{iPerf} per la simulazione di traffico.
+This function is called every time a switch receives a packet, finds no match, and forwards the packet to the controller.
+The controller extracts information from the packet and maintains a MAC table for each switch, where the association (MAC, port) is found.
+If the destination is already known, it is used for direct forwarding. If the destination is unknown, the packet is flooded only on the down route.
+Then the flow rule is installed on the switch to handle future packets with the same source and destination MAC addresses.
+Testing of this implementation was performed using Mininet's \textit{pingall} tool, \textit{Wireshark}, and \textit{iPerf} for traffic simulation.
 
-\begin{commandline}
-\begin{verbatim}
-mininet> pingall 
-*** Ping: testing ping reachability
+Firstly, the \textit{pingall} tool was used to verify that all hosts can communicate with each other, regardless of the service slicing policies. This is crucial to ensure that the implemented rules do not inadvertently block communication between hosts. The results of the \textit{pingall} test are shown in Figure \ref{img:pingall_service}, where all hosts successfully ping each other, confirming that connectivity is maintained across the network.
 
-h1 -> h2 h3 h4 
-h2 -> h1 h3 h4 
-h3 -> h1 h2 h4 
-h4 -> h1 h2 h3
+\begin{figure}[H]
+    \centering
+    \setlength{\fboxrule}{.5pt} 
+    \setlength{\fboxsep}{3pt} 
+    \fbox{\includegraphics[width=0.55\textwidth]{img/pingall_service.jpeg}}
+    \caption{pingall results: all hosts can communicate.}
+    \label{img:pingall_service}
+\end{figure}
 
-*** Results: 0% dropped (12/12 received) 
-\end{verbatim}
-\end{commandline}
-
-\noindent
-La verifica con \textit{iperf} e \textit{wireshark} è stata efettuata configurando h1 come server e h4 come client. Lo scopo era evidenziare attraverso l'ascolto dei link collegati allo switch s3 che:
-\begin{itemize}
-    \item le politiche di service slicing sono state effettivamente applicate, infatti il traffico "video streaming" è visto solo sul path superiore e tutto l'altro traffico non è mai visto sul path superiore;
-    \item la banda della rete dedicata è maggiore di quella della rete \textit{best effort} per costruzione, e quindi il traffico video gode di un throughput migliore.  
-\end{itemize}
+For the second test we simulated video streaming traffic using \textit{iPerf} by sending UDP packets on port 9999 from host h4 to host h1. We created a web server on host h1 and a client on host h4. The commands used for this test is shown below:
 
 \begin{commandline}
 \begin{verbatim}
 mininet> h1 iperf -s -u -p 9999
 mininet> h4 iperf -c h1 -u -p 9999 -b 10M -t 10
-mininet> h1 killall iperf
-mininet> h1 iperf -s -u -p 5000
-mininet> h4 iperf -c h1 -u -p 5000 -b 1M -t 10
 \end{verbatim}
 \end{commandline}
 
+Then we repeated the test for best effort traffic by sending TCP packets on port 5001 from host h4 to host h1, using the following commands:
+
+\begin{commandline}
+\begin{verbatim}
+mininet> h1 iperf -s -p 5001 
+mininet> h4 iperf -c h1 -p 5001 -t 10
+\end{verbatim}
+\end{commandline}
+
+Then Wireshark was used to capture traffic on the interfaces of switches s3 and s4 to verify that the service slicing policies were correctly applied. On switch s3, only video streaming traffic (UDP port 9999) should be visible, while on switch s4, all other traffic should be visible. The Wireshark captures confirm this behavior: on switch s3, only UDP packets on port 9999 are seen (Figure \ref{img:h1toh3}), while on switch s4, all other traffic is visible (Figure \ref{img:h2toh4}).
+
+\begin{figure}[H]
+    \centering
+    \setlength{\fboxrule}{.5pt} 
+    \setlength{\fboxsep}{3pt} 
+    \fbox{\includegraphics[width=0.9\textwidth]{img/s3_service.jpeg}}
+    \caption{Wireshark capture on S3 interface: all the video streaming traffic (UDP port 9999) is seen on the upper path.}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \setlength{\fboxrule}{.5pt} 
+    \setlength{\fboxsep}{3pt} 
+    \fbox{\includegraphics[width=0.9\textwidth]{img/s4_service.jpeg}}
+    \caption{Wireshark capture on S4 interface: all other traffic is visible.}
+\end{figure}
+
 \newpage
-\begin{figure}[ht]
+
+The second part of the experiment involved simulating both types of traffic simultaneously to verify that the service slicing policies are correctly prioritizing the video streaming traffic. We ran the \textit{iPerf} tests for both video streaming and best effort traffic at the same time, while capturing traffic on h1, where services are hosted. 
+
+\begin{figure}[H]
     \centering
     \setlength{\fboxrule}{.5pt} 
     \setlength{\fboxsep}{3pt} 
-    \fbox{\includegraphics[width=0.9\textwidth]{img/S_whireshark_h4toh1_9999.png}}
-    \label{img:h4toh1_9000}
+    \fbox{\includegraphics[width=0.9\textwidth]{img/experiment.jpeg}}
+    \caption{Simultaneous traffic test: video streaming traffic (UDP port 9999) and best effort traffic (UDP port 5001) are generated at the same time.}
 \end{figure}
 
-\begin{figure}[ht]
-    \centering
-    \setlength{\fboxrule}{.5pt} 
-    \setlength{\fboxsep}{3pt} 
-    \fbox{\includegraphics[width=0.9\textwidth]{img/down_traffic.png}}
-    \label{img:down_traffic}
-\end{figure}
 
-\begin{figure}[ht]
-    \centering
-    \setlength{\fboxrule}{.5pt} 
-    \setlength{\fboxsep}{3pt} 
-    \fbox{\includegraphics[width=0.9\textwidth]{img/S_wireshark_h4toh1_5000.png}}
-    \label{img:h4toh1_5000}
-\end{figure}
+The \textit{iPerf} results confirm the effectiveness of the implemented strategy: video streaming traffic (UDP port 9999) achieves significantly higher throughput compared to best effort traffic, as shown in Figure \ref{img:comparison}. This demonstrates that the service slicing policies are correctly differentiating the treatment of flows.
+
 
 \begin{figure}[ht]
     \centering
     \setlength{\fboxrule}{.5pt} 
     \setlength{\fboxsep}{3pt} 
     \fbox{\includegraphics[width=0.9\textwidth]{img/throughput_compared.png}}
+    \caption{Throughput comparison: video streaming vs best effort traffic.}
     \label{img:comparison}
 \end{figure}
 

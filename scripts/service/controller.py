@@ -127,51 +127,54 @@ class RyuController(app_manager.RyuApp):
         dpid = datapath.id
         in_port = msg.match['in_port']
 
+        # Se il pacchetto non è di tipo Ethernet, ignoralo
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocol(ethernet.ethernet)
         if eth is None:
             return
 
-        dst = eth.dst
-        src = eth.src
+        dst = eth.dst # Indirizzo MAC di destinazione del pacchetto
+        src = eth.src # Indirizzo MAC di origine del pacchetto
 
-        self.mac_to_port.setdefault(dpid, {})
+        self.mac_to_port.setdefault(dpid, {}) # Controlla se esiste già una voce per lo switch identificato da dpid nella tabella di apprendimento degli indirizzi MAC (mac_to_port) e, se non esiste, ne crea una nuova con un dizionario vuoto come valore
 
-        self.mac_to_port[dpid][src] = in_port
+        self.mac_to_port[dpid][src] = in_port # Aggiorna la tabella di apprendimento degli indirizzi MAC associando l'indirizzo MAC di origine del pacchetto alla porta dello switch
 
-        if dst in self.mac_to_port[dpid]:
+        if dst in self.mac_to_port[dpid]: # Controlla se l'indirizzo MAC di destinazione del pacchetto è già presente nella tabella di apprendimento degli indirizzi MAC per lo switch identificato da dpid. 
+            # Se è presente, inoltra il pacchetto verso la porta associata all'indirizzo MAC di destinazione
             out_port = self.mac_to_port[dpid][dst]
             self.logger.info(f"[LEARNING] dpid={dpid}, {src} -> {dst}, out_port={out_port}")
             actions = [parser.OFPActionOutput(out_port)]
-        else:
+        else: # altrimenti flooding controllato: inoltra il pacchetto verso tutte le porte tranne quella di ingresso, ma solo verso le porte collegate a host o verso le porte che collegano gli switch tra loro (interswitch links). Inoltre evita loop rimuovendo l'anello nella topologia
             host_ports = {
-                1: {1,2},
-                2: {3,4},
-                3: set(),
-                4: set()
+                1: {1,2}, # switch 1 ha host h1 e h2 collegati alle porte 1 e 2
+                2: {3,4}, # switch 2 ha host h3 e h4 collegati alle porte 3 e 4
+                3: set(), # switch 3 non ha host collegati direttamente
+                4: set() # switch 4 non ha host collegati direttamente
             }
 
+            # Forza rotta down come da traccia, riservando la rotta up solo per il traffico UDP 
             interswitch_links = {
-                1: {4},
-                2: {2},
+                1: {4}, # switch 1 è collegato a switch 4 tramite la porta 4
+                2: {2}, # switch 2 è collegato a switch 4 tramite la porta 2
             }
 
             actions = []
             for p in host_ports.get(dpid, set()):
                 if p != in_port:
-                    actions.append(parser.OFPActionOutput(p))
+                    actions.append(parser.OFPActionOutput(p)) # Aggiunge un'azione di output verso la porta p è una porta collegata a un host, escludendo la porta di ingresso del pacchetto
 
             for p in interswitch_links.get(dpid, set()):
                 if p != in_port:
-                    actions.append(parser.OFPActionOutput(p))
+                    actions.append(parser.OFPActionOutput(p)) # Aggiunge un'azione di output verso la porta p è una porta collegata a un altro switch, escludendo la porta di ingresso del pacchetto
 
             self.logger.info(f"[CONTROLLED FLOOD via dw] dpid={dpid}, {src} -> {dst}, out_ports={[a.port for a in actions]}")
 
-        # 
+        
         if not actions:
             return
 
-        if len(actions) == 1:
+        if len(actions) == 1: # salva regola di forwarding se c'è una sola porta di output, altrimenti non salva regole di flooding
             match = parser.OFPMatch(in_port=in_port, eth_src=src, eth_dst=dst)
             self.add_flow(datapath, priority=1, match=match, actions=actions)
 
@@ -182,4 +185,4 @@ class RyuController(app_manager.RyuApp):
             actions=actions,
             data=msg.data
         )
-        datapath.send_msg(out)
+        datapath.send_msg(out) # Re-Invia messaggio allo switch aggiornato. 
