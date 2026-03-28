@@ -17,9 +17,9 @@ This project implements **network slicing** in an **SDN** environment using **Mi
 
 ## Repository structure
 
-- `scripts/topology/`: topology + controller for topology slicing
-- `scripts/service/`: topology + controller for service slicing
-- `scripts/data_analysis/`: iPerf CSVs (`up.csv`, `down.csv`) and plotting script (`data_analysis.py`)
+- `src/topology/`: topology + controller for topology slicing
+- `src/service/`: topology + controller for service slicing
+- `src/data_analysis/`: iPerf CSVs (`up.csv`, `down.csv`) and plotting script (`data_analysis.py`)
 - `elaborato_LaTeX/`: report in LaTeX
 
 ## Requirements
